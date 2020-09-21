@@ -9,12 +9,6 @@
 #define ledPin1 11
 
 
-
-inline const char * const BoolToString(bool b)
-{
-  return b ? "true" : "false";
-}
-
 class Flasher
 {
     // Class Member Variables
@@ -76,9 +70,9 @@ class Buzzer
 {
     // Class Member Variables
     // These are initialized at startup
-    int buzzerPin;      // the number of the LED pin
+    int buzzerPin;      // the number of the Buzzer pin
     long SoundMs;     // milliseconds sound buzzer for give frequency
-    long FreqStepHz;     // change in frequency in Hz
+    long FreqStepHz;     // change in frequency in Hz per step
     boolean active; //active or not
     long freq; //frequency
     static const long FREQ_MAX = 13000;
@@ -148,9 +142,9 @@ class Alarm
 
 
     // These maintain the current state
-    unsigned long previousMillis;   // will store last time Buzzer was updated
+    unsigned long previousMillis;   // will store last time Alarm was updated
 
-    // Constructor - creates a Flasher
+    // Constructor - creates a Alarm
     // and initializes the member variables and state
   public: Alarm(Buzzer buz, Flasher flash, long durationTime)
     {
@@ -166,7 +160,6 @@ class Alarm
         flasher.ToggleActive();
         buzzer.ToggleActive();
         previousMillis = millis();
-        Serial.println((String)"alarm active: " + (active ? "true" : "false"));
       }
     }
 
@@ -203,9 +196,6 @@ SR04 sr04 = SR04(ECHO_PIN, TRIG_PIN);
 long distanceCm;
 
 void setup() {
-
-
-
   Serial.begin(9600);//Initialization of Serial Port
   delay(1000);
 }
@@ -213,10 +203,9 @@ void setup() {
 
 void loop() {
   distanceCm = sr04.Distance();
-  Serial.print(distanceCm);
-  Serial.println("cm");//The difference between "Serial.print" and "Serial.println"
-  //delay(500);
+
   alarm.Update();
+  
   if (distanceCm < ALARM_LENGTH_CM) {
     Serial.print(distanceCm);
     Serial.println("cm ALARM!!!");
