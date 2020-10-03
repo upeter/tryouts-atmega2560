@@ -1,13 +1,88 @@
 //www.elegoo.com
 //2016.12.08
 #include "SR04.h"
+#include <LiquidCrystal.h>
+LiquidCrystal lcd(7, 8, 9, 10, 11, 12);
+
 
 #define TRIG_PIN 3
 #define ECHO_PIN 4
 #define BUZZER 2
-#define ALARM_LENGTH_CM 20
 #define ledPin1 5
+#define SWITCH_PIN 6
+#define DISTANCE_SWITCH_PIN 22
 
+int ALARM_LENGTH_CM = 20;
+
+class StopWatch
+{
+    boolean started1 = false;
+    boolean started2 = false;
+    unsigned long startTime = 0;
+    unsigned long stopTime1 = 0;
+    unsigned long stopTime2 = 0;
+    unsigned long timerDelayMs = 1000;
+
+  public: StopWatch(int i) {}
+
+
+    char *  timeToString()
+    {
+      static char str[12];
+      unsigned long now = millis() - startTime;
+      int m = now / 1000 / 60;
+      int sec = now / 1000 - (m * 60);
+      int ms = now % 1000;
+      sprintf(str, "%02d:%02d:%04d", m, sec, ms);
+      return str;
+    }
+    void Start() {
+      lcd.clear();
+      started1 = true;
+      started2 = true;
+      startTime = millis();
+    }
+
+    bool Running() {
+      return started1 || started2;
+    }
+
+    void Stop() {
+      if (started1) {
+        Serial.println("StopWatch: Stopped 1");
+        stopTime1 = millis();
+        started1 = false;
+      } else if (started2 && (millis() - stopTime1) > timerDelayMs) {
+        Serial.println("StopWatch: Stopped 2");
+        stopTime2 = millis();
+        started2 = false;
+      }
+    }
+
+    void Reset() {
+      lcd.clear();
+      lcd.write("Ready?");
+      started1 = false;
+      started2 = false;
+      startTime = 0;
+      stopTime1 = 0;
+      stopTime2 = 0;
+    }
+
+    void Update() {
+      if (started1) {
+        lcd.setCursor(0, 0);
+        lcd.write(timeToString());
+      }
+      if (started2) {
+        lcd.setCursor(0, 1);
+        lcd.write(timeToString());
+      }
+    }
+
+};
+
+StopWatch watch(1);
 
 class Flasher
 {
@@ -62,6 +137,7 @@ class Flasher
         }
       } else {
         previousMillis = 0;
+        digitalWrite(ledPin, LOW);
       }
     }
 };
@@ -103,7 +179,7 @@ class Buzzer
       active = !active;
       if (!active) {
         noTone(buzzerPin);
-         freq = FREQ_MIN;
+        freq = FREQ_MIN;
       }
     }
 
@@ -129,6 +205,130 @@ class Buzzer
       }
     }
 };
+
+
+class Switch
+{
+    // These maintain the current state
+    int switchPin;      // the number of the Switch pin
+
+    const int LONG_PRESS_TIME = 2000; // ms
+
+    // Variables will change:
+    int lastState = HIGH;  // the previous state from the input pin
+    int currentState;     // the current reading from the input pin
+    unsigned long pressedTime  = 0;
+    unsigned long releasedTime = 0;
+
+
+  public: Switch(int pin)
+    {
+      switchPin = pin;
+      pinMode(pin, INPUT_PULLUP);
+    }
+
+    void Reset()
+    {
+      pressedTime = 0;
+      releasedTime = 0;
+    }
+
+    void Update()
+    {
+      // read the state of the switch/button:
+      currentState = digitalRead(switchPin);
+
+      if (lastState == HIGH && currentState == LOW)   {    // button is pressed
+        pressedTime = millis();
+        Serial.println((String)"pressed " + pressedTime);
+      } else if (lastState == LOW && currentState == HIGH) { // button is released
+        releasedTime = millis();
+        Serial.println((String)"released " + releasedTime);
+        long pressDuration = releasedTime - pressedTime;
+
+        if ( pressDuration >= LONG_PRESS_TIME ) {
+          Reset();
+          watch.Reset();
+        } else {
+          Reset();
+          if (watch.Running()) {
+            watch.Stop();
+          } else {
+            watch.Start();
+          }
+        }
+      }
+      // save the the last state
+      lastState = currentState;
+    }
+};
+
+class DistanceSwitch
+{
+    // These maintain the current state
+    int switchPin;      // the number of the Switch pin
+
+    const int LONG_PRESS_TIME = 2000; // ms
+
+    // Variables will change:
+    int lastState = HIGH;  // the previous state from the input pin
+    int currentState;     // the current reading from the input pin
+    int incCm; //increment in centimeters
+    unsigned long pressedTime  = 0;
+    unsigned long releasedTime = 0;
+
+
+
+  public: DistanceSwitch(int pin, int inc)
+    {
+      switchPin = pin;
+      incCm = inc;
+      pinMode(pin, INPUT_PULLUP);
+    }
+
+    void Reset()
+    {
+      pressedTime = 0;
+      releasedTime = 0;
+    }
+
+    char * DisplayText() {
+      static char buffer[128];
+      snprintf(buffer, sizeof(buffer), "%s%d%s", "Distance: ", ALARM_LENGTH_CM, " cm");
+      return  buffer;
+    }
+
+    void Update()
+    {
+      // read the state of the switch/button:
+      currentState = digitalRead(switchPin);
+
+      if (lastState == HIGH && currentState == LOW)   {    // button is pressed
+        pressedTime = millis();
+      } else if (lastState == LOW && currentState == HIGH) { // button is released
+        releasedTime = millis();
+        long pressDuration = releasedTime - pressedTime;
+
+        if ( pressDuration >= LONG_PRESS_TIME ) {
+          Serial.println("Distance Reset");
+          ALARM_LENGTH_CM = incCm;
+          lcd.clear();
+          lcd.write(DisplayText());
+          Reset();
+        } else {
+          Serial.println("Distance increment");
+          ALARM_LENGTH_CM += incCm;
+          lcd.clear();
+          lcd.write(DisplayText());
+          Reset();
+        }
+      }
+
+      // save the the last state
+      lastState = currentState;
+    }
+};
+
 
 
 class Alarm
@@ -190,13 +390,18 @@ class Alarm
 
 Flasher flasher(ledPin1, 50, 100);
 Buzzer buzzer(BUZZER, 5, 80);
-Alarm alarm(buzzer, flasher, 5000);
+Alarm alarm(buzzer, flasher, 3000);
+Switch switcher(SWITCH_PIN);
+DistanceSwitch distanceSwitch(DISTANCE_SWITCH_PIN, 10);
+
 
 SR04 sr04 = SR04(ECHO_PIN, TRIG_PIN);
 long distanceCm;
 
 void setup() {
   Serial.begin(9600);//Initialization of Serial Port
+  lcd.begin(16, 2);
+  lcd.print("Ready?");
   delay(1000);
 }
 
@@ -205,8 +410,12 @@ void loop() {
   distanceCm = sr04.Distance();
 
   alarm.Update();
-  
-  if (distanceCm < ALARM_LENGTH_CM) {
+  switcher.Update();
+  distanceSwitch.Update();
+  watch.Update();
+
+  if (distanceCm < ALARM_LENGTH_CM && watch.Running()) {
+    watch.Stop();
     Serial.print(distanceCm);
     Serial.println("cm ALARM!!!");
     alarm.Activate();
